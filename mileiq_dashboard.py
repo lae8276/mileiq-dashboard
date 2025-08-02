@@ -37,12 +37,17 @@ def remove_consecutive_duplicates(postcodes_str: str) -> str:
 def process_file(file) -> tuple[pd.DataFrame, float]:
     df = read_excel(file)
     df.columns = ['Start Time', 'Start Location', 'End Location', 'Miles']
+    
+    # Convert Miles to float safely
+    df['Miles'] = pd.to_numeric(df['Miles'], errors='coerce').fillna(0.0)
+
     df['Date'] = pd.to_datetime(df['Start Time'], errors='coerce', dayfirst=True).dt.date
     df['Start Postcode'] = df['Start Location'].apply(extract_postcode)
     df['End Postcode'] = df['End Location'].apply(extract_postcode)
     df['Postcodes'] = df[['Start Postcode', 'End Postcode']].apply(
         lambda x: ','.join([p for p in x if p]), axis=1
     )
+
     grouped = df.groupby('Date').agg({
         'Miles': 'sum',
         'Postcodes': lambda x: remove_consecutive_duplicates(','.join(x))
