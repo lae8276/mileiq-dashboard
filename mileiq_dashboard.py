@@ -61,12 +61,15 @@ if uploaded_file:
     try:
         summary_df, total_miles = process_file(uploaded_file)
 
-        st.subheader("\U0001F697 Total Miles")
-        st.markdown(f"""
-        <input type='text' value='{total_miles:.1f} mi' ondblclick='navigator.clipboard.writeText(this.value)' readonly style='width:150px; padding:4px; font-size:16px;'>
-        """, unsafe_allow_html=True)
-
-        st.dataframe(summary_df, use_container_width=True)
+        st.subheader("\U0001F4DD Daily Summary")
+        for _, row in summary_df.iterrows():
+            st.markdown(f"""
+            <div ondblclick="navigator.clipboard.writeText(this.innerText)" style="padding:8px;border:1px solid #ddd;border-radius:5px;margin-bottom:4px;font-family:monospace">
+            <b>Date:</b> {row['Date']}<br>
+            <b>Miles:</b> {row['Miles']}<br>
+            <b>Postcodes:</b> {row['Postcodes']}
+            </div>
+            """, unsafe_allow_html=True)
 
         excel_data = convert_df_to_excel(summary_df)
         st.download_button(
