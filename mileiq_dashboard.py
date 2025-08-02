@@ -21,14 +21,14 @@ def extract_postcode(location: str) -> str:
 def read_excel(file) -> pd.DataFrame:
     ext = file.name.lower()
     if ext.endswith('.xls'):
-        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='xlrd')
+        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='xlrd', dayfirst=True)
     else:
-        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='openpyxl')
+        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='openpyxl', dayfirst=True)
 
 def process_file(file) -> tuple[pd.DataFrame, float]:
     df = read_excel(file)
     df.columns = ['Start Time', 'Start Location', 'End Location', 'Miles']
-    df['Date'] = pd.to_datetime(df['Start Time'], errors='coerce').dt.date
+    df['Date'] = pd.to_datetime(df['Start Time'], errors='coerce', dayfirst=True).dt.date
     df['Start Postcode'] = df['Start Location'].apply(extract_postcode)
     df['End Postcode'] = df['End Location'].apply(extract_postcode)
     df['Postcodes'] = df['Start Postcode'] + ',' + df['End Postcode']
