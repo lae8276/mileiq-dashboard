@@ -50,6 +50,8 @@ def process_file(file) -> tuple[pd.DataFrame, float]:
     
     # Format date as dd-MMM-yyyy
     grouped['Date'] = pd.to_datetime(grouped['Date']).dt.strftime('%d-%b-%Y')
+grouped['Miles'] = grouped['Miles'].round(1)
+
 
     total_miles = grouped['Miles'].sum()
     return grouped, total_miles
