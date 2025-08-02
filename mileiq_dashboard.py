@@ -18,19 +18,24 @@ def extract_postcode(location: str) -> str:
     match = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?) ?([0-9][ABD-HJLNP-UW-Z]{2})\b', location, re.IGNORECASE)
     return (match.group(1) + match.group(2)).upper() if match else ''
 
+def read_excel(file) -> pd.DataFrame:
+    ext = file.name.lower()
+    if ext.endswith('.xls'):
+        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='xlrd')
+    else:
+        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='openpyxl')
+
 def process_file(file) -> tuple[pd.DataFrame, float]:
-    df = pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7])
+    df = read_excel(file)
     df.columns = ['Start Time', 'Start Location', 'End Location', 'Miles']
     df['Date'] = pd.to_datetime(df['Start Time'], errors='coerce').dt.date
     df['Start Postcode'] = df['Start Location'].apply(extract_postcode)
     df['End Postcode'] = df['End Location'].apply(extract_postcode)
     df['Postcodes'] = df['Start Postcode'] + ',' + df['End Postcode']
-
     grouped = df.groupby('Date').agg({
         'Miles': 'sum',
         'Postcodes': lambda x: ','.join(x)
     }).reset_index()
-
     total_miles = grouped['Miles'].sum()
     return grouped, total_miles
 
@@ -43,18 +48,20 @@ def convert_df_to_excel(df: pd.DataFrame) -> BytesIO:
 
 # Streamlit UI
 st.title("📊 MileIQ Mileage Summary")
-uploaded_file = st.file_uploader("Upload your MileIQ .xlsx file", type=['xlsx'])
+uploaded_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type=['xlsx', 'xls'])
 
 if uploaded_file:
-    summary_df, total_miles = process_file(uploaded_file)
+    try:
+        summary_df, total_miles = process_file(uploaded_file)
+        st.metric(label="🚗 Total Miles", value=f"{total_miles:.1f} mi")
+        st.dataframe(summary_df, use_container_width=True)
 
-    st.metric(label="🚗 Total Miles", value=f"{total_miles:.1f} mi")
-    st.dataframe(summary_df, use_container_width=True)
-
-    excel_data = convert_df_to_excel(summary_df)
-    st.download_button(
-        label="💾 Download Summary as Excel",
-        data=excel_data,
-        file_name="mileiq_summary.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        excel_data = convert_df_to_excel(summary_df)
+        st.download_button(
+            label="💾 Download Summary as Excel",
+            data=excel_data,
+            file_name="mileiq_summary.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as e:
+        st.error(f"❌ Error processing file: {e}")
