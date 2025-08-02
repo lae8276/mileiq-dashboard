@@ -21,9 +21,9 @@ def extract_postcode(location: str) -> str:
 def read_excel(file) -> pd.DataFrame:
     ext = file.name.lower()
     if ext.endswith('.xls'):
-        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='xlrd', dayfirst=True)
+        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='xlrd')
     else:
-        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='openpyxl', dayfirst=True)
+        return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='openpyxl')
 
 def process_file(file) -> tuple[pd.DataFrame, float]:
     df = read_excel(file)
