@@ -49,7 +49,7 @@ def process_file(file) -> tuple[pd.DataFrame, float]:
 def convert_df_to_excel(df: pd.DataFrame) -> BytesIO:
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Summary')
+        df.to_excel(writer, index=False, sheet_name='Summary') 
     output.seek(0)
     return output
 
