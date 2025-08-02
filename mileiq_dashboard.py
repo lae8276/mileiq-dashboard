@@ -12,7 +12,7 @@ def extract_postcode(location: str) -> str:
     if loc == 'home':
         return 'UB3'
     if 'rico pudo' in loc:
-        return 'UB6'
+        return 'UB7'
     full = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?) ?[0-9][ABD-HJLNP-UW-Z]{2}\b', location, re.IGNORECASE)
     if full:
         return full.group(1).upper()
