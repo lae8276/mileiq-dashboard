@@ -13,10 +13,17 @@ def extract_postcode(location: str) -> str:
     loc = location.lower().strip()
     if loc == 'home':
         return 'UB3'
-    if 'rico pudo' in loc:
+    if 'rico pudo' in loc.replace(' ', ''):
         return 'UB6'
-    match = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?) ?[0-9][ABD-HJLNP-UW-Z]{2}\b', location, re.IGNORECASE)
-    return match.group(1).upper() if match else ''
+
+    # Try full postcode first
+    full = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?) ?[0-9][ABD-HJLNP-UW-Z]{2}\b', location, re.IGNORECASE)
+    if full:
+        return full.group(1).upper()
+
+    # Fallback: just outward part
+    partial = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?)\b', location, re.IGNORECASE)
+    return partial.group(1).upper() if partial else ''
 
 def read_excel(file) -> pd.DataFrame:
     ext = file.name.lower()
@@ -31,7 +38,7 @@ def process_file(file) -> tuple[pd.DataFrame, float]:
     df['Date'] = pd.to_datetime(df['Start Time'], errors='coerce', dayfirst=True).dt.date
     df['Start Postcode'] = df['Start Location'].apply(extract_postcode)
     df['End Postcode'] = df['End Location'].apply(extract_postcode)
-    df['Postcodes'] = df['Start Postcode'] + ',' + df['End Postcode']
+    df['Postcodes'] = df[['Start Postcode', 'End Postcode']].apply(lambda x: ','.join([p for p in x if p]), axis=1)
     grouped = df.groupby('Date').agg({
         'Miles': 'sum',
         'Postcodes': lambda x: ','.join(x)
@@ -53,7 +60,12 @@ uploaded_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type
 if uploaded_file:
     try:
         summary_df, total_miles = process_file(uploaded_file)
-        st.metric(label="\U0001F697 Total Miles", value=f"{total_miles:.1f} mi")
+
+        st.subheader("\U0001F697 Total Miles")
+        st.markdown(f"""
+        <input type='text' value='{total_miles:.1f} mi' ondblclick='navigator.clipboard.writeText(this.value)' readonly style='width:150px; padding:4px; font-size:16px;'>
+        """, unsafe_allow_html=True)
+
         st.dataframe(summary_df, use_container_width=True)
 
         excel_data = convert_df_to_excel(summary_df)
