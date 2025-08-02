@@ -37,7 +37,7 @@ def process_file(file) -> tuple[pd.DataFrame, float]:
     df['Postcodes'] = df[['Start Postcode', 'End Postcode']].apply(lambda x: ','.join([p for p in x if p]), axis=1)
     grouped = df.groupby('Date').agg({
         'Miles': 'sum',
-        'Postcodes': lambda x: ','.join(x)
+        def remove_consecutive_duplicates(postcodes_str):     parts = postcodes_str.split(',')     filtered = [parts[0]] if parts else []     for i in range(1, len(parts)):         if parts[i] != parts[i-1]:             filtered.append(parts[i])     return ','.join(filtered)  'Postcodes': lambda x: remove_consecutive_duplicates(','.join(x))
     }).reset_index()
     total_miles = grouped['Miles'].sum()
     return grouped, total_miles
