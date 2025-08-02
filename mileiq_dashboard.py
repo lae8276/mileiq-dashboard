@@ -1,5 +1,3 @@
-# file: mileiq_dashboard.py
-
 import pandas as pd
 import re
 import streamlit as st
@@ -47,23 +45,29 @@ def convert_df_to_excel(df: pd.DataFrame) -> BytesIO:
     return output
 
 # Streamlit UI
-st.title("📊 MileIQ Mileage Summary")
+st.title("\U0001F4CA MileIQ Mileage Summary")
 uploaded_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type=['xlsx', 'xls'])
 
 if uploaded_file:
     try:
         summary_df, total_miles = process_file(uploaded_file)
-        st.subheader("🚗 Total Miles")
-st.code(f"{total_miles:.1f} mi", language='text')
+
+        st.subheader("\U0001F697 Total Miles")
+        st.code(f"{total_miles:.1f} mi", language='text')
 
         st.dataframe(summary_df, use_container_width=True)
 
+        st.subheader("\U0001F4CB Copyable Postcodes by Date")
+        for _, row in summary_df.iterrows():
+            st.markdown(f"**{row['Date']}**")
+            st.code(row['Postcodes'], language='text')
+
         excel_data = convert_df_to_excel(summary_df)
         st.download_button(
-            label="💾 Download Summary as Excel",
+            label="\U0001F4BE Download Summary as Excel",
             data=excel_data,
             file_name="mileiq_summary.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     except Exception as e:
-        st.error(f"❌ Error processing file: {e}")
+        st.error(f"\u274C Error processing file: {e}")
