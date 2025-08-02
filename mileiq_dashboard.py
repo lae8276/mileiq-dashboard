@@ -13,11 +13,9 @@ def extract_postcode(location: str) -> str:
         return 'UB3'
     if 'rico pudo' in loc:
         return 'UB6'
-    # Full postcode
     full = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?) ?[0-9][ABD-HJLNP-UW-Z]{2}\b', location, re.IGNORECASE)
     if full:
         return full.group(1).upper()
-    # Outward-only
     partial = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?)\b', location, re.IGNORECASE)
     return partial.group(1).upper() if partial else ''
 
@@ -28,16 +26,26 @@ def read_excel(file) -> pd.DataFrame:
     else:
         return pd.read_excel(file, skiprows=39, header=None, usecols=[1, 2, 4, 7], engine='openpyxl')
 
+def remove_consecutive_duplicates(postcodes_str: str) -> str:
+    parts = postcodes_str.split(',')
+    filtered = [parts[0]] if parts else []
+    for i in range(1, len(parts)):
+        if parts[i] != parts[i-1]:
+            filtered.append(parts[i])
+    return ','.join(filtered)
+
 def process_file(file) -> tuple[pd.DataFrame, float]:
     df = read_excel(file)
     df.columns = ['Start Time', 'Start Location', 'End Location', 'Miles']
     df['Date'] = pd.to_datetime(df['Start Time'], errors='coerce', dayfirst=True).dt.date
     df['Start Postcode'] = df['Start Location'].apply(extract_postcode)
     df['End Postcode'] = df['End Location'].apply(extract_postcode)
-    df['Postcodes'] = df[['Start Postcode', 'End Postcode']].apply(lambda x: ','.join([p for p in x if p]), axis=1)
+    df['Postcodes'] = df[['Start Postcode', 'End Postcode']].apply(
+        lambda x: ','.join([p for p in x if p]), axis=1
+    )
     grouped = df.groupby('Date').agg({
         'Miles': 'sum',
-        def remove_consecutive_duplicates(postcodes_str):     parts = postcodes_str.split(',')     filtered = [parts[0]] if parts else []     for i in range(1, len(parts)):         if parts[i] != parts[i-1]:             filtered.append(parts[i])     return ','.join(filtered)  'Postcodes': lambda x: remove_consecutive_duplicates(','.join(x))
+        'Postcodes': lambda x: remove_consecutive_duplicates(','.join(x))
     }).reset_index()
     total_miles = grouped['Miles'].sum()
     return grouped, total_miles
