@@ -53,7 +53,9 @@ uploaded_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type
 if uploaded_file:
     try:
         summary_df, total_miles = process_file(uploaded_file)
-        st.metric(label="🚗 Total Miles", value=f"{total_miles:.1f} mi")
+        st.subheader("🚗 Total Miles")
+st.code(f"{total_miles:.1f} mi", language='text')
+
         st.dataframe(summary_df, use_container_width=True)
 
         excel_data = convert_df_to_excel(summary_df)
