@@ -12,7 +12,7 @@ def extract_postcode(location: str) -> str:
     if loc == 'home':
         return 'UB3'
     if 'rico pudo' in loc:
-        return 'UB7'
+        return 'UB6'
     full = re.search(r'\b([A-Z]{1,2}[0-9R][0-9A-Z]?) ?[0-9][ABD-HJLNP-UW-Z]{2}\b', location, re.IGNORECASE)
     if full:
         return full.group(1).upper()
@@ -47,6 +47,10 @@ def process_file(file) -> tuple[pd.DataFrame, float]:
         'Miles': 'sum',
         'Postcodes': lambda x: remove_consecutive_duplicates(','.join(x))
     }).reset_index()
+    
+    # Format date as dd-MMM-yyyy
+    grouped['Date'] = pd.to_datetime(grouped['Date']).dt.strftime('%d-%b-%Y')
+
     total_miles = grouped['Miles'].sum()
     return grouped, total_miles
 
