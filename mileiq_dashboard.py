@@ -2,8 +2,9 @@ import pandas as pd
 import re
 import streamlit as st
 from io import BytesIO
+from pypdf import PdfMerger
 
-st.set_page_config(page_title="MileIQ Summary", layout="wide")
+st.set_page_config(page_title="MileIQ Summary & PDF Merger", layout="wide")
 
 def extract_postcode(location: str) -> str:
     if not isinstance(location, str):
@@ -37,26 +38,19 @@ def remove_consecutive_duplicates(postcodes_str: str) -> str:
 def process_file(file) -> tuple[pd.DataFrame, float]:
     df = read_excel(file)
     df.columns = ['Start Time', 'Start Location', 'End Location', 'Miles']
-    
-    # Convert Miles to float safely
     df['Miles'] = pd.to_numeric(df['Miles'], errors='coerce').fillna(0.0)
-
     df['Date'] = pd.to_datetime(df['Start Time'], errors='coerce', dayfirst=True).dt.date
     df['Start Postcode'] = df['Start Location'].apply(extract_postcode)
     df['End Postcode'] = df['End Location'].apply(extract_postcode)
     df['Postcodes'] = df[['Start Postcode', 'End Postcode']].apply(
         lambda x: ','.join([p for p in x if p]), axis=1
     )
-
     grouped = df.groupby('Date').agg({
         'Miles': 'sum',
         'Postcodes': lambda x: remove_consecutive_duplicates(','.join(x))
     }).reset_index()
-
-    # Format date + round miles
     grouped['Date'] = pd.to_datetime(grouped['Date']).dt.strftime('%d-%b-%Y')
     grouped['Miles'] = grouped['Miles'].round(1)
-
     total_miles = grouped['Miles'].sum()
     return grouped, total_miles
 
@@ -67,22 +61,51 @@ def convert_df_to_excel(df: pd.DataFrame) -> BytesIO:
     output.seek(0)
     return output
 
-# Streamlit UI
-st.title("📊 MileIQ Mileage Summary")
-uploaded_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type=['xlsx', 'xls'])
+def merge_pdfs_by_filename(files) -> BytesIO:
+    merger = PdfMerger()
+    sorted_files = sorted(files, key=lambda f: int(re.search(r'(\d+)', f.name).group(1)) if re.search(r'(\d+)', f.name) else float('inf'))
+    for file in sorted_files:
+        merger.append(file)
+    output = BytesIO()
+    merger.write(output)
+    merger.close()
+    output.seek(0)
+    return output
 
-if uploaded_file:
-    try:
-        summary_df, total_miles = process_file(uploaded_file)
-        st.metric(label="🚗 Total Miles", value=f"{total_miles:.1f} mi")
-        st.dataframe(summary_df, use_container_width=True)
+# Streamlit Tabs
+summary_tab, merge_tab = st.tabs(["📊 MileIQ Summary", "📎 Merge PDFs"])
 
-        excel_data = convert_df_to_excel(summary_df)
-        st.download_button(
-            label="💾 Download Summary as Excel",
-            data=excel_data,
-            file_name="mileiq_summary.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    except Exception as e:
-        st.error(f"❌ Error processing file: {e}")
+with summary_tab:
+    st.title("📊 MileIQ Mileage Summary")
+    uploaded_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type=['xlsx', 'xls'])
+
+    if uploaded_file:
+        try:
+            summary_df, total_miles = process_file(uploaded_file)
+            st.metric(label="🚗 Total Miles", value=f"{total_miles:.1f} mi")
+            st.dataframe(summary_df, use_container_width=True)
+            excel_data = convert_df_to_excel(summary_df)
+            st.download_button(
+                label="💾 Download Summary as Excel",
+                data=excel_data,
+                file_name="mileiq_summary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.error(f"❌ Error processing file: {e}")
+
+with merge_tab:
+    st.title("📎 Merge PDFs")
+    pdf_files = st.file_uploader("Upload PDFs to merge (numeric filenames recommended)", type=["pdf"], accept_multiple_files=True)
+
+    if pdf_files:
+        try:
+            merged_pdf = merge_pdfs_by_filename(pdf_files)
+            st.download_button(
+                label="📥 Download Merged PDF",
+                data=merged_pdf,
+                file_name="merged_output.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.error(f"❌ Error merging PDFs: {e}")
