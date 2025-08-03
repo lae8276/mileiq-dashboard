@@ -2,7 +2,7 @@ import pandas as pd
 import re
 import streamlit as st
 from io import BytesIO
-from pypdf import PdfMerger
+from pypdf import PdfReader, PdfWriter
 
 st.set_page_config(page_title="MileIQ Summary & PDF Merger", layout="wide")
 
@@ -62,15 +62,19 @@ def convert_df_to_excel(df: pd.DataFrame) -> BytesIO:
     return output
 
 def merge_pdfs_by_filename(files) -> BytesIO:
-    merger = PdfMerger()
-    sorted_files = sorted(files, key=lambda f: int(re.search(r'(\d+)', f.name).group(1)) if re.search(r'(\d+)', f.name) else float('inf'))
+    writer = PdfWriter()
+    sorted_files = sorted(
+        files,
+        key=lambda f: int(re.search(r'(\d+)', f.name).group(1)) if re.search(r'(\d+)', f.name) else float('inf')
+    )
     for file in sorted_files:
-        merger.append(file)
+        reader = PdfReader(file)
+        for page in reader.pages:
+            writer.add_page(page)
     output = BytesIO()
-    merger.write(output)
-    merger.close()
+    writer.write(output)
     output.seek(0)
-    return output
+    return output, sorted_files
 
 # Streamlit Tabs
 summary_tab, merge_tab = st.tabs(["📊 MileIQ Summary", "📎 Merge PDFs"])
@@ -100,7 +104,15 @@ with merge_tab:
 
     if pdf_files:
         try:
-            merged_pdf = merge_pdfs_by_filename(pdf_files)
+            st.write(f"📄 {len(pdf_files)} file(s) uploaded:")
+            sorted_filenames = sorted(
+                [f.name for f in pdf_files],
+                key=lambda name: int(re.search(r'(\d+)', name).group(1)) if re.search(r'(\d+)', name) else float('inf')
+            )
+            for name in sorted_filenames:
+                st.markdown(f"- {name}")
+
+            merged_pdf, _ = merge_pdfs_by_filename(pdf_files)
             st.download_button(
                 label="📥 Download Merged PDF",
                 data=merged_pdf,
