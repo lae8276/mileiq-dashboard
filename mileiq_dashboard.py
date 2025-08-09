@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from io import BytesIO
 from typing import Iterable, List, Tuple
+import math
 
 import pandas as pd
 import streamlit as st
@@ -147,7 +148,14 @@ with overtime_tab:
                 cutoff_time = get_cutoff_time(arrival_time.weekday())
                 if arrival_time.time() > cutoff_time:
                     hours = (pd.Timestamp.combine(pd.Timestamp.today(), arrival_time.time()) - pd.Timestamp.combine(pd.Timestamp.today(), cutoff_time)).seconds / 3600
-                    overtime_rows.append({"Date": date.strftime("%d-%b-%Y"), "Home Arrival": arrival_time.strftime("%H:%M"), "Overtime Hours": round(hours, 2)})
+                    # Round up to nearest 0.5 hour
+                    hours = math.ceil(hours * 2) / 2
+                    overtime_rows.append({
+                        "Date": date.strftime("%d-%b-%Y"),
+                        "Day": arrival_time.strftime("%A"),
+                        "Home Arrival": arrival_time.strftime("%H:%M"),
+                        "Overtime Hours": hours
+                    })
 
             overtime_df = pd.DataFrame(overtime_rows)
             total_overtime = overtime_df["Overtime Hours"].sum() if not overtime_df.empty else 0.0
