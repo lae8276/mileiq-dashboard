@@ -145,13 +145,12 @@ with overtime_tab:
     overtime_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type=["xlsx", "xls"], key="overtime_upload")
 
     def cutoff_time_for_date(d) -> pd.Timestamp:
-        """Return time object for daily cutoff (weekend 16:30, weekday 17:30)."""
         wd = pd.Timestamp(d).weekday()
         return pd.to_datetime("16:30" if wd in (5, 6) else "17:30").time()
 
     if overtime_file is not None:
         try:
-            _, _, raw = process_file(overtime_file)  # has Event Time, Date, End Postcode
+            _, _, raw = process_file(overtime_file)
             if raw.empty:
                 st.info("No trips found.")
             else:
@@ -160,17 +159,30 @@ with overtime_tab:
                     home_rows = day_df[day_df["End Postcode"].str.upper() == "UB3"]
                     if home_rows.empty:
                         continue
-                    arrival = home_rows.sort_values("Event Time").iloc[-1]["Event Time"]
+
+                    # Latest trip ending at UB3
+                    latest_row = home_rows.sort_values("Event Time").iloc[-1]
+                    arrival = latest_row["Event Time"]
+
+                    # Second last trip of the whole day (any postcode)
+                    all_sorted = day_df.sort_values("Event Time")
+                    if len(all_sorted) >= 2:
+                        second_last_full = str(all_sorted.iloc[-2]["End Location"])  # full postcode
+                    else:
+                        second_last_full = ""
+
                     cut_dt = pd.Timestamp.combine(pd.Timestamp(d).date(), cutoff_time_for_date(d))
                     diff_h = (arrival - cut_dt).total_seconds() / 3600.0
                     if diff_h <= 0:
                         continue
-                    hours = math.ceil(diff_h * 2) / 2.0  # round up to 0.5
+
+                    hours = math.ceil(diff_h * 2) / 2.0
                     rows.append({
                         "SortDate": pd.to_datetime(d),
                         "Date": pd.to_datetime(d).strftime("%d-%b-%Y"),
                         "Day": pd.to_datetime(d).strftime("%A"),
                         "Home Arrival": pd.to_datetime(arrival).strftime("%H:%M"),
+                        "Second Last Postcode": second_last_full,
                         "Overtime Hours": hours,
                     })
 
@@ -182,7 +194,7 @@ with overtime_tab:
                         .reset_index(drop=True)
                     )
                 else:
-                    overtime_df = pd.DataFrame(columns=["Date", "Day", "Home Arrival", "Overtime Hours"])
+                    overtime_df = pd.DataFrame(columns=["Date", "Day", "Home Arrival", "Second Last Postcode", "Overtime Hours"])
 
                 total_ot = float(overtime_df["Overtime Hours"].sum()) if not overtime_df.empty else 0.0
                 st.metric("⏱️ Total Overtime", f"{total_ot:.2f} hrs")
