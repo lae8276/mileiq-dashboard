@@ -130,14 +130,44 @@ with summary_tab:
 with overtime_tab:
     st.title("⏱️ Overtime Calculator")
     overtime_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type=["xlsx", "xls"], key="overtime_upload")
+
     if overtime_file is not None:
         try:
             _, _, raw_df = process_file(overtime_file)
             raw_df["End Time Parsed"] = pd.to_datetime(raw_df["Start Time"], errors="coerce", dayfirst=True)
             raw_df["DayOfWeek"] = raw_df["End Time Parsed"].dt.dayofweek
 
+            # Build selectable date options from the data for S and T
+            dates_present = (
+                raw_df["End Time Parsed"].dt.date.dropna().sort_values().unique().tolist()
+            )
+            colA, colB, colC = st.columns([2, 2, 1])
+            with colA:
+                use_pattern = st.checkbox(
+                    "Use OffDays/WorkDays pattern (full-day 7.5h OT on off days with work)", value=False,
+                    help="OffDays = {S-2, S-1, T+1, T+2}. WorkDays add {S, T}."
+                )
+            with colB:
+                st.caption("Select S and T from dates below (only if pattern is enabled)")
+            st.write("")
+            sel = st.multiselect(
+                "Select S and T work days",
+                options=dates_present,
+                format_func=lambda d: f"{pd.to_datetime(d).strftime('%d-%b-%Y')} (" + pd.to_datetime(d).strftime('%A') + ")",
+            )
+
             def get_cutoff_time(day_of_week: int):
                 return pd.to_datetime("16:30" if day_of_week >= 5 else "17:30", format="%H:%M").time()
+
+            # Compute OffDays set if pattern enabled and two days selected
+            off_days = set()
+            work_days = set()
+            if use_pattern and len(sel) == 2:
+                S, T = sorted(sel)
+                S = pd.to_datetime(S).date()
+                T = pd.to_datetime(T).date()
+                work_days = {S, T}
+                off_days = {S - pd.Timedelta(days=2), S - pd.Timedelta(days=1), T + pd.Timedelta(days=1), T + pd.Timedelta(days=2)}
 
             overtime_rows = []
             for date, group in raw_df.groupby(raw_df["End Time Parsed"].dt.date):
@@ -146,27 +176,34 @@ with overtime_tab:
                     continue
                 arrival_time = latest_home["End Time Parsed"].iloc[0]
                 cutoff_time = get_cutoff_time(arrival_time.weekday())
-                if arrival_time.time() > cutoff_time:
-                    hours = (pd.Timestamp.combine(pd.Timestamp.today(), arrival_time.time()) - pd.Timestamp.combine(pd.Timestamp.today(), cutoff_time)).seconds / 3600
-                    hours = math.ceil(hours * 2) / 2  # round up to 0.5h
-                    # Determine if this is a 7.5h workday based on OffDays formula
-                    day_idx = arrival_time.weekday()
-                    day_flag = ""
-                    if hours == 7.5:
-                        day_flag = "🔴"
-                    overtime_rows.append({
-                        "Date": date.strftime("%d-%b-%Y"),
-                        "Day": arrival_time.strftime("%A"),
-                        "Home Arrival": arrival_time.strftime("%H:%M"),
-                        "Overtime Hours": hours,
-                        "Flag": day_flag
-                    })
+
+                full_day_flag = False
+                if off_days and date in off_days:
+                    # Any activity on an OffDay becomes a full 7.5h overtime day
+                    hours = 7.5
+                    full_day_flag = True
+                else:
+                    if arrival_time.time() > cutoff_time:
+                        hours = (pd.Timestamp.combine(pd.Timestamp.today(), arrival_time.time()) - pd.Timestamp.combine(pd.Timestamp.today(), cutoff_time)).seconds / 3600
+                        hours = math.ceil(hours * 2) / 2  # round up to 0.5h
+                    else:
+                        hours = 0.0
+
+                overtime_rows.append({
+                    "Date": date.strftime("%d-%b-%Y"),
+                    "Day": arrival_time.strftime("%A"),
+                    "Home Arrival": arrival_time.strftime("%H:%M"),
+                    "Overtime Hours": hours,
+                    "Flag": "🔴 o" if full_day_flag else ""
+                })
 
             overtime_df = pd.DataFrame(overtime_rows)
+            overtime_df = overtime_df.sort_values("Date").reset_index(drop=True)
             total_overtime = overtime_df["Overtime Hours"].sum() if not overtime_df.empty else 0.0
 
             st.metric(label="⏱️ Total Overtime", value=f"{total_overtime:.2f} hrs")
             st.dataframe(overtime_df, use_container_width=True)
+
         except Exception as e:
             st.error(f"❌ Error calculating overtime: {e}")
 
