@@ -62,6 +62,7 @@ def process_file(file) -> Tuple[pd.DataFrame, float, pd.DataFrame]:
     df["Start Postcode"] = df["Start Location"].apply(extract_postcode)
     df["End Postcode"] = df["End Location"].apply(extract_postcode)
     df["Postcodes"] = df[["Start Postcode", "End Postcode"]].apply(lambda x: ",".join([p for p in x if p]), axis=1)
+
     grouped = (
         df.groupby("Date")
         .agg(
@@ -125,7 +126,12 @@ with summary_tab:
             st.metric(label="🚗 Total Miles", value=f"{total_miles:.1f} mi")
             st.dataframe(summary_df, use_container_width=True)
             excel_data = convert_df_to_excel(summary_df)
-            st.download_button("💾 Download Summary as Excel", data=excel_data, file_name="mileiq_summary.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button(
+                "💾 Download Summary as Excel",
+                data=excel_data,
+                file_name="mileiq_summary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
         except Exception as e:
             st.error(f"❌ Error processing file: {e}")
 
@@ -145,32 +151,32 @@ with overtime_tab:
             if raw.empty:
                 st.info("No trips found.")
             else:
-                raw["Month"] = pd.to_datetime(raw["Date"]).astype("datetime64[M]")
+                # Robust month bucketing using Periods (avoids datetime64[M] casting)
+                raw["Month"] = raw["Event Time"].dt.to_period("M")
 
                 overtime_rows: List[dict] = []
 
                 for month, month_df in raw.groupby("Month"):
                     # Detect worked Sundays (S) and worked Saturdays (T) in this month
-                    worked_sundays = sorted({d for d, g in month_df.groupby("Date") if pd.Timestamp(d).weekday() == 6})
-                    worked_saturdays = sorted({d for d, g in month_df.groupby("Date") if pd.Timestamp(d).weekday() == 5})
+                    by_d = dict(tuple(month_df.groupby("Date")))
+                    worked_sundays = sorted(d for d in by_d if pd.Timestamp(d).weekday() == 6)
+                    worked_saturdays = sorted(d for d in by_d if pd.Timestamp(d).weekday() == 5)
 
-                    # If no S or T in month, we still compute normal OT for other days
                     s_set = set(worked_sundays)
                     t_set = set(worked_saturdays)
 
                     off_days = set()
                     for s in s_set:
-                        off_days.add(s - timedelta(days=2))  # Fri
-                        off_days.add(s - timedelta(days=1))  # Sat
+                        off_days.add(s - timedelta(days=2))  # Fri = S-2
+                        off_days.add(s - timedelta(days=1))  # Sat = S-1
                     for t in t_set:
-                        off_days.add(t + timedelta(days=1))  # Sun
-                        off_days.add(t + timedelta(days=2))  # Mon
+                        off_days.add(t + timedelta(days=1))  # Sun = T+1
+                        off_days.add(t + timedelta(days=2))  # Mon = T+2
 
-                    by_date = dict(tuple(month_df.groupby("Date")))
-                    for d in sorted(by_date.keys()):
-                        day_df = by_date[d]
+                    for d in sorted(by_d.keys()):
+                        day_df = by_d[d]
 
-                        # full-day OT on OffDays when any activity exists
+                        # Full-day OT (7.5h) for any activity on OffDays
                         if d in off_days and not day_df.empty:
                             overtime_rows.append({
                                 "SortDate": pd.to_datetime(d),
@@ -182,7 +188,7 @@ with overtime_tab:
                             })
                             continue
 
-                        # otherwise: compute by arrival home after cutoff
+                        # Otherwise compute by arrival home (UB3) after cutoff
                         home_rows = day_df[day_df["End Postcode"].str.upper() == "UB3"]
                         if home_rows.empty:
                             continue
@@ -191,8 +197,9 @@ with overtime_tab:
                         diff_h = (latest_arrival - cut_dt).total_seconds() / 3600.0
                         if diff_h <= 0:
                             continue
-                        hours = math.ceil(diff_h * 2) / 2.0
-                        hours = min(hours, 7.5)
+
+                        hours = math.ceil(diff_h * 2) / 2.0  # round up to next 0.5
+                        hours = min(hours, 7.5)             # cap 7.5h
                         overtime_rows.append({
                             "SortDate": pd.to_datetime(d),
                             "Date": pd.to_datetime(d).strftime("%d-%b-%Y"),
