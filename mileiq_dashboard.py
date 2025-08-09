@@ -148,13 +148,18 @@ with overtime_tab:
                 cutoff_time = get_cutoff_time(arrival_time.weekday())
                 if arrival_time.time() > cutoff_time:
                     hours = (pd.Timestamp.combine(pd.Timestamp.today(), arrival_time.time()) - pd.Timestamp.combine(pd.Timestamp.today(), cutoff_time)).seconds / 3600
-                    # Round up to nearest 0.5 hour
-                    hours = math.ceil(hours * 2) / 2
+                    hours = math.ceil(hours * 2) / 2  # round up to 0.5h
+                    # Determine if this is a 7.5h workday based on OffDays formula
+                    day_idx = arrival_time.weekday()
+                    day_flag = ""
+                    if hours == 7.5:
+                        day_flag = "🔴"
                     overtime_rows.append({
                         "Date": date.strftime("%d-%b-%Y"),
                         "Day": arrival_time.strftime("%A"),
                         "Home Arrival": arrival_time.strftime("%H:%M"),
-                        "Overtime Hours": hours
+                        "Overtime Hours": hours,
+                        "Flag": day_flag
                     })
 
             overtime_df = pd.DataFrame(overtime_rows)
