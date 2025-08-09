@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import timedelta
 from io import BytesIO
 from typing import Iterable, List, Tuple
 
@@ -18,11 +17,12 @@ POSTCODE_FULL_RE = re.compile(r"\b([A-Z]{1,2}[0-9R][0-9A-Z]?) ?[0-9][ABD-HJLNP-U
 POSTCODE_PARTIAL_RE = re.compile(r"\b([A-Z]{1,2}[0-9R][0-9A-Z]?)\b", re.IGNORECASE)
 
 def extract_postcode(location: str) -> str:
+    """Return outward UK postcode (e.g., UB3) from freeform text."""
     if not isinstance(location, str):
         return ""
     loc = (location or "").strip().lower()
     if loc == "home":
-        return "UB3"  # why: normalize home
+        return "UB3"  # normalize
     if "rico pudo" in loc:
         return "UB7"
     full = POSTCODE_FULL_RE.search(location or "")
@@ -32,6 +32,7 @@ def extract_postcode(location: str) -> str:
     return partial.group(1).upper() if partial else ""
 
 def read_excel(file) -> pd.DataFrame:
+    """Read MileIQ export (.xls/.xlsx) with expected columns at positions [1,2,4,7]."""
     name = getattr(file, "name", "").lower()
     usecols = [1, 2, 4, 7]  # Start Time, Start Location, End Location, Miles
     if name.endswith(".xls"):
@@ -41,6 +42,7 @@ def read_excel(file) -> pd.DataFrame:
     raise ValueError("Unsupported file type. Please upload .xls or .xlsx.")
 
 def remove_consecutive_duplicates(postcodes_str: str) -> str:
+    """Remove consecutive outward postcode duplicates in a comma-joined string."""
     if not postcodes_str:
         return ""
     parts = [p.strip() for p in postcodes_str.split(",") if p.strip()]
@@ -54,6 +56,7 @@ def remove_consecutive_duplicates(postcodes_str: str) -> str:
 
 @st.cache_data(show_spinner=False)
 def process_file(file) -> Tuple[pd.DataFrame, float, pd.DataFrame]:
+    """Return (daily summary df, total miles, raw df enriched)."""
     df = read_excel(file)
     df.columns = ["Start Time", "Start Location", "End Location", "Miles"]
     df["Miles"] = pd.to_numeric(df["Miles"], errors="coerce").fillna(0.0)
@@ -78,6 +81,7 @@ def process_file(file) -> Tuple[pd.DataFrame, float, pd.DataFrame]:
 
 @st.cache_data(show_spinner=False)
 def convert_df_to_excel(df: pd.DataFrame) -> BytesIO:
+    """Convert a DataFrame to Excel bytes for download."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         df.to_excel(writer, index=False, sheet_name="Summary")
@@ -97,6 +101,7 @@ def _validate_pdf_readable(file) -> None:
             raise ValueError(f"Encrypted PDF not supported: {getattr(file, 'name', '')}") from exc
 
 def merge_pdfs_by_filename(files: Iterable) -> Tuple[BytesIO, List[str]]:
+    """Merge PDFs by numeric-aware filename ordering."""
     files = list(files)
     if not files:
         raise ValueError("No PDF files provided.")
@@ -136,14 +141,13 @@ with summary_tab:
             st.error(f"❌ Error processing file: {e}")
 
 with overtime_tab:
-    st.title("⏱️ Overtime Calculator")
+    st.title("⏱️ Overtime Calculator (Simple)")
     overtime_file = st.file_uploader("Upload your MileIQ file (.xlsx or .xls)", type=["xlsx", "xls"], key="overtime_upload")
 
-    def cutoff_for_date(d) -> pd.Timestamp:
-        # why: weekends use 16:30, weekdays 17:30
+    def cutoff_time_for_date(d) -> pd.Timestamp:
+        """Return time object for daily cutoff (weekend 16:30, weekday 17:30)."""
         wd = pd.Timestamp(d).weekday()
-        t = "16:30" if wd in (5, 6) else "17:30"
-        return pd.to_datetime(t).time()
+        return pd.to_datetime("16:30" if wd in (5, 6) else "17:30").time()
 
     if overtime_file is not None:
         try:
@@ -151,73 +155,34 @@ with overtime_tab:
             if raw.empty:
                 st.info("No trips found.")
             else:
-                # Robust month bucketing using Periods (avoids datetime64[M] casting)
-                raw["Month"] = raw["Event Time"].dt.to_period("M")
+                rows: List[dict] = []
+                for d, day_df in raw.groupby("Date"):
+                    home_rows = day_df[day_df["End Postcode"].str.upper() == "UB3"]
+                    if home_rows.empty:
+                        continue
+                    arrival = home_rows.sort_values("Event Time").iloc[-1]["Event Time"]
+                    cut_dt = pd.Timestamp.combine(pd.Timestamp(d).date(), cutoff_time_for_date(d))
+                    diff_h = (arrival - cut_dt).total_seconds() / 3600.0
+                    if diff_h <= 0:
+                        continue
+                    hours = math.ceil(diff_h * 2) / 2.0  # round up to 0.5
+                    rows.append({
+                        "SortDate": pd.to_datetime(d),
+                        "Date": pd.to_datetime(d).strftime("%d-%b-%Y"),
+                        "Day": pd.to_datetime(d).strftime("%A"),
+                        "Home Arrival": pd.to_datetime(arrival).strftime("%H:%M"),
+                        "Overtime Hours": hours,
+                    })
 
-                overtime_rows: List[dict] = []
-
-                for month, month_df in raw.groupby("Month"):
-                    # Detect worked Sundays (S) and worked Saturdays (T) in this month
-                    by_d = dict(tuple(month_df.groupby("Date")))
-                    worked_sundays = sorted(d for d in by_d if pd.Timestamp(d).weekday() == 6)
-                    worked_saturdays = sorted(d for d in by_d if pd.Timestamp(d).weekday() == 5)
-
-                    s_set = set(worked_sundays)
-                    t_set = set(worked_saturdays)
-
-                    off_days = set()
-                    for s in s_set:
-                        off_days.add(s - timedelta(days=2))  # Fri = S-2
-                        off_days.add(s - timedelta(days=1))  # Sat = S-1
-                    for t in t_set:
-                        off_days.add(t + timedelta(days=1))  # Sun = T+1
-                        off_days.add(t + timedelta(days=2))  # Mon = T+2
-
-                    for d in sorted(by_d.keys()):
-                        day_df = by_d[d]
-
-                        # Full-day OT (7.5h) for any activity on OffDays
-                        if d in off_days and not day_df.empty:
-                            overtime_rows.append({
-                                "SortDate": pd.to_datetime(d),
-                                "Date": pd.to_datetime(d).strftime("%d-%b-%Y"),
-                                "Day": pd.to_datetime(d).strftime("%A"),
-                                "Home Arrival": "",
-                                "Overtime Hours": 7.5,
-                                "Flag": "🔴 o",
-                            })
-                            continue
-
-                        # Otherwise compute by arrival home (UB3) after cutoff
-                        home_rows = day_df[day_df["End Postcode"].str.upper() == "UB3"]
-                        if home_rows.empty:
-                            continue
-                        latest_arrival = home_rows.sort_values("Event Time").iloc[-1]["Event Time"]
-                        cut_dt = pd.Timestamp.combine(pd.Timestamp(d).date(), cutoff_for_date(d))
-                        diff_h = (latest_arrival - cut_dt).total_seconds() / 3600.0
-                        if diff_h <= 0:
-                            continue
-
-                        hours = math.ceil(diff_h * 2) / 2.0  # round up to next 0.5
-                        hours = min(hours, 7.5)             # cap 7.5h
-                        overtime_rows.append({
-                            "SortDate": pd.to_datetime(d),
-                            "Date": pd.to_datetime(d).strftime("%d-%b-%Y"),
-                            "Day": pd.to_datetime(d).strftime("%A"),
-                            "Home Arrival": pd.to_datetime(latest_arrival).strftime("%H:%M"),
-                            "Overtime Hours": hours,
-                            "Flag": "🔴 o" if hours == 7.5 else "",
-                        })
-
-                if overtime_rows:
+                if rows:
                     overtime_df = (
-                        pd.DataFrame(overtime_rows)
+                        pd.DataFrame(rows)
                         .sort_values("SortDate")
                         .drop(columns=["SortDate"])
                         .reset_index(drop=True)
                     )
                 else:
-                    overtime_df = pd.DataFrame(columns=["Date", "Day", "Home Arrival", "Overtime Hours", "Flag"])
+                    overtime_df = pd.DataFrame(columns=["Date", "Day", "Home Arrival", "Overtime Hours"])
 
                 total_ot = float(overtime_df["Overtime Hours"].sum()) if not overtime_df.empty else 0.0
                 st.metric("⏱️ Total Overtime", f"{total_ot:.2f} hrs")
